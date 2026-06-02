@@ -1,0 +1,40 @@
+rss:
+  sources:
+    # -------------------------
+    # Official AI lab / company blogs
+    # -------------------------
+    - name: Google AI Blog
+      url: https://blog.google/technology/ai/rss/
+      enabled: true
+      category: ai_lab
+      priority: high
+
+    - name: Microsoft AI Blog
+      url: https://blogs.microsoft.com/ai/feed/
+      enabled: true
+      category: ai_lab
+      priority: high
+
+    - name: Hugging Face Blog
+      url: https://huggingface.co/blog/feed.xml
+      enabled: true
+      category: open_source_ai
+      priority: high
+
+    - name: NVIDIA Developer Blog
+      url: https://developer.nvidia.com/blog/feed/
+      enabled: true
+      category: ai_infra
+      priority: high
+
+    - name: GitHub Blog
+      url: https://github.blog/feed/
+      enabled: true
+      category: dev_tools
+      priority: medium
+
+    - name: GitHub Changelog
+      url: https://github.blog/changelog/feed/
+      enabled: true
+      category: dev_tools
+      priority: high
