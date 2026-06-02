@@ -15,6 +15,7 @@ rss:
       category: ai_lab
       priority: high
 
+
     - name: Hugging Face Blog
       url: https://huggingface.co/blog/feed.xml
       enabled: true
@@ -38,3 +39,35 @@ rss:
       enabled: true
       category: dev_tools
       priority: high
+
+arxiv:
+  enabled: true
+  api_url: https://export.arxiv.org/api/query
+  priority: medium
+  max_results: 40
+  categories:
+    - cs.CL
+    - cs.CV
+    - cs.AI
+    - cs.LG
+
+github:
+  enabled: true
+  api_url: https://api.github.com/search/repositories
+  priority: medium
+  max_results_per_query: 10
+  min_stars: 500
+  queries:
+    - llm
+    - langgraph
+    - mcp
+    - vision language model
+
+huggingface:
+  enabled: true
+  priority: medium
+  max_results_per_query: 10
+  filters:
+    - text-generation
+    - image-text-to-text
+    - video-text-to-text

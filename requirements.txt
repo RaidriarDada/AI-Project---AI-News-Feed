@@ -1,2 +1,5 @@
 feedparser
 PyYAML
+requests
+huggingface_hub
+python-dotenv

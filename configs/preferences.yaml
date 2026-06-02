@@ -1,0 +1,124 @@
+collection:
+  lookback_days: 3
+
+ranking:
+  source_priority_scores:
+    high: 2
+    medium: 1
+    low: 0
+
+  branch_base_scores:
+    news: 0
+    research: 1
+    development: 1
+
+  research_category_scores:
+    cs.CL: 1
+    cs.CV: 1
+    cs.AI: 1
+    cs.LG: 1
+
+  recency_scores:
+    - max_age_days: 1
+      score: 2
+    - max_age_days: 3
+      score: 1
+
+  practical_keywords:
+    - release
+    - framework
+    - benchmark
+    - evaluation
+    - inference
+    - deployment
+    - open source
+    - repository
+    - tool use
+
+  penalty_keywords:
+    funding:
+      score: -2
+      keywords:
+        - funding
+        - fundraising
+        - valuation
+        - venture capital
+
+    hype:
+      score: -1
+      keywords:
+        - game changer
+        - revolutionize
+        - changes everything
+
+  maturity_scores:
+    github_stars:
+      - minimum: 10000
+        score: 3
+      - minimum: 1000
+        score: 2
+      - minimum: 100
+        score: 1
+
+    huggingface_downloads:
+      - minimum: 100000
+        score: 3
+      - minimum: 10000
+        score: 2
+      - minimum: 1000
+        score: 1
+
+    huggingface_likes:
+      - minimum: 100
+        score: 2
+      - minimum: 10
+        score: 1
+
+    huggingface_trending:
+      - minimum: 10
+        score: 2
+      - minimum: 1
+        score: 1
+
+  topic_keywords:
+    LLM:
+      - llm
+      - language model
+      - gpt
+      - gemini
+
+    AI agents:
+      - agent
+      - agentic
+      - tool use
+
+    Multimodal:
+      - multimodal
+      - vision
+      - video
+      - image
+
+    Reasoning:
+      - reasoning
+      - thinking
+
+    Infrastructure:
+      - inference
+      - deployment
+      - gpu
+
+selection:
+  minimum_shortlist_score: 2
+  minimum_final_score: 3
+  max_final_items: 12
+  top_pick_count: 3
+
+  shortlist_limits:
+    news: 15
+    research: 10
+    development: 10
+
+  final_branch_quotas:
+    news: 4
+    research: 3
+    development: 3

@@ -1,193 +1,142 @@
-from dataclasses import dataclass, field
-from datetime import date, datetime
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
 
-import feedparser
 import yaml
-import sqlite3
 
-@dataclass
-class Article:
-    title: str
-    link: str
-    source_name: str
-    published: str
-    topics: list[str] = field(default_factory=list)
-    score: int = 0
+from tools.arxiv_client import collect_arxiv_items
+from tools.database import (
+    create_run,
+    finish_run,
+    initialize_database,
+    load_daily_digest_items,
+    load_recent_items,
+    record_item_decisions,
+    replace_daily_digest_selections,
+    save_new_items,
+    update_stored_item_rankings,
+)
+from tools.digest import save_digest
+from tools.rss_client import collect_rss_items
+from tools.scoring import classify_and_rank_items
+from tools.selection import select_final_items, shortlist_items
+from tools.text_utils import remove_duplicate_items
+from tools.github_client import collect_github_items
+from tools.huggingface_client import collect_huggingface_items
 
-TOPIC_KEYWORDS = {
-    "LLM": ["llm", "language model", "gpt", "gemini"],
-    "AI agents": ["agent", "agentic", "tool use"],
-    "Multimodal": ["multimodal", "vision", "video", "image"],
-    "Reasoning": ["reasoning", "thinking"],
-    "Infrastructure": ["inference", "deployment", "gpu"],
-}
 
-def load_feeds() -> dict[str, str]:
-    """Load RSS feed URLs from the configuration file."""
-    config_path = Path("configs/sources.yaml")
+def load_yaml_config(path: str) -> dict:
+    """Load a YAML configuration file."""
+    config_path = Path(path)
 
     if not config_path.exists():
         print(f"Config file not found: {config_path}")
         return {}
 
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
-    feeds = {}
 
-    for source in config["rss"]["sources"]:
-        if source.get("enabled", True):
-            feeds[source["name"]] = source["url"]
-
-    return feeds
-
-def collect_articles(source_name: str, feed_url: str) -> list[Article]:
-    """Collect articles from a given RSS feed."""
-    print(f"Collecting articles from {source_name}...")
-    feed = feedparser.parse(feed_url)
-
-    if feed.bozo:
-        print(f"Error parsing feed: {feed.bozo_exception}")
-        return []
-
-    articles = []
-    for entry in feed.entries[:5]:
-        article = Article(
-            title=entry.title,
-            link=entry.link,
-            source_name=source_name,
-            published=entry.published
-        )
-        articles.append(article)
-    return articles
-
-def remove_duplicate_articles(articles: list[Article]) -> list[Article]:
-    """Remove duplicate articles based on their links."""
-    unique_articles = []
-    seen_links = set()
-
-    for article in articles:
-        normalized_link = article.link.rstrip("/")
-
-        if normalized_link in seen_links:
-            print(f"Skipping duplicate: {article.title}")
-            continue
-
-        seen_links.add(normalized_link)
-        unique_articles.append(article)
-
-    return unique_articles
-
-def initialize_database() -> Path:
-    """Initialize the SQLite database and return its path."""
-    data_dir = Path("data")
-    data_dir.mkdir(exist_ok=True)
-
-    database_path = data_dir / "news_agent.db"
-
-    with sqlite3.connect(database_path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS articles (
-                link TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                source_name TEXT NOT NULL,
-                published TEXT NOT NULL,
-                collected_at TEXT NOT NULL
-            )
-            """
-        )
-
-    return database_path
-
-def classify_and_rank_articles(articles: list[Article]) -> list[Article]:
-    for article in articles:
-        searchable_text = article.title.lower()
-
-        for topic, keywords in TOPIC_KEYWORDS.items():
-            if any(keyword in searchable_text for keyword in keywords):
-                article.topics.append(topic)
-                article.score += 1
-
-    return sorted(articles, key=lambda article: article.score, reverse=True)
-
-def save_new_articles(
-    articles: list[Article], database_path: Path
-) -> list[Article]:
-    """Save new articles to the database and return the list of newly added articles."""
-    new_articles = []
-
-    with sqlite3.connect(database_path) as connection:
-        for article in articles:
-            cursor = connection.execute(
-                """
-                INSERT OR IGNORE INTO articles (
-                    link,
-                    title,
-                    source_name,
-                    published,
-                    collected_at
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    article.link.rstrip("/"),
-                    article.title,
-                    article.source_name,
-                    article.published,
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
-            )
-
-            if cursor.rowcount == 1:
-                new_articles.append(article)
-
-    return new_articles
-
-def save_digest(articles: list[Article]) -> None:
-    output_directory = Path("outputs")
-    output_directory.mkdir(exist_ok=True)
-
-    digest_lines = [
-        f"# AI News Digest - {date.today().isoformat()}",
-        "",
+def get_enabled_rss_sources(sources_config: dict) -> list[dict]:
+    """Return enabled RSS source settings."""
+    return [
+        source
+        for source in sources_config.get("rss", {}).get("sources", [])
+        if source.get("enabled", True)
     ]
 
-    for article in articles:
-        digest_lines.append(f"## {article.title}")
-        digest_lines.append(f"Source: {article.source_name}")
-        topics = ", ".join(article.topics) or "Other"
-        digest_lines.append(f"Topics: {topics}")
-        digest_lines.append(f"Relevance score: {article.score}")
-        digest_lines.append(f"Published: {article.published}")
-        digest_lines.append(f"Link: {article.link}")
-        digest_lines.append("")
 
-    output_path = output_directory / "ai_digest.md"
-    output_path.write_text("\n".join(digest_lines), encoding="utf-8")
-
-    print(f"\nDigest saved to: {output_path}")
-
-
-# Modify the main function to initialize the database and save only new articles
 def main() -> None:
+    sources_config = load_yaml_config("configs/sources.yaml")
+    preferences = load_yaml_config("configs/preferences.yaml")
+    lookback_days = preferences.get("collection", {}).get("lookback_days", 3)
+
     database_path = initialize_database()
-    feeds = load_feeds()
-    all_articles = []
+    run_id = create_run(database_path, lookback_days)
 
-    for source_name, feed_url in feeds.items():
-        all_articles.extend(collect_articles(source_name, feed_url))
+    try:
+        rss_items = []
+        for source in get_enabled_rss_sources(sources_config):
+            rss_items.extend(collect_rss_items(source, lookback_days))
 
-    unique_articles = remove_duplicate_articles(all_articles)
-    new_articles = save_new_articles(unique_articles, database_path)
+        arxiv_items = collect_arxiv_items(
+            sources_config.get("arxiv", {}),
+            lookback_days,
+        )
 
-    ranked_articles = classify_and_rank_articles(new_articles)
+        github_items = collect_github_items(
+            sources_config.get("github", {}),
+            lookback_days,
+        )
 
-    print(f"\nCollected articles: {len(all_articles)}")
-    print(f"Unique articles: {len(unique_articles)}")
-    print(f"New articles: {len(new_articles)}")
+        huggingface_items = collect_huggingface_items(
+            sources_config.get("huggingface", {}),
+            lookback_days,
+        )
 
-    save_digest(ranked_articles)
+        collected_items = rss_items + arxiv_items + github_items + huggingface_items
+        unique_items = remove_duplicate_items(collected_items)
+        ranked_items = classify_and_rank_items(unique_items, preferences)
+        new_items = save_new_items(ranked_items, database_path)
+        update_stored_item_rankings(ranked_items, database_path)
+
+        recent_items = load_recent_items(database_path, lookback_days)
+        ranked_recent_items = classify_and_rank_items(recent_items, preferences)
+        update_stored_item_rankings(ranked_recent_items, database_path)
+
+        shortlisted_items = shortlist_items(ranked_recent_items, preferences)
+        selected_items = select_final_items(shortlisted_items, preferences)
+
+        record_item_decisions(
+            database_path,
+            run_id,
+            ranked_recent_items,
+            "shortlist",
+            shortlisted_items,
+        )
+        record_item_decisions(
+            database_path,
+            run_id,
+            shortlisted_items,
+            "final_selection",
+            selected_items,
+        )
+
+        top_pick_count = preferences.get("selection", {}).get("top_pick_count", 3)
+        replace_daily_digest_selections(
+            database_path,
+            run_id,
+            selected_items,
+            top_pick_count,
+        )
+        digest_items = load_daily_digest_items(database_path)
+        digest_path = save_digest(digest_items)
+
+        stats = {
+            "num_collected": len(collected_items),
+            "num_unique": len(unique_items),
+            "num_new": len(new_items),
+            "num_rss": len(rss_items),
+            "num_arxiv": len(arxiv_items),
+            "num_github": len(github_items),
+            "num_huggingface": len(huggingface_items),
+            "num_shortlisted": len(shortlisted_items),
+            "num_selected": len(selected_items),
+        }
+        finish_run(database_path, run_id, "completed", stats, digest_path)
+
+        print(f"\nRSS collected: {len(rss_items)}")
+        print(f"arXiv collected: {len(arxiv_items)}")
+        print(f"GitHub collected: {len(github_items)}")
+        print(f"Hugging Face collected: {len(huggingface_items)}")
+        print(f"Total collected: {len(collected_items)}")
+        print(f"Unique items: {len(unique_items)}")
+        print(f"New items: {len(new_items)}")
+        print(f"Shortlisted items: {len(shortlisted_items)}")
+        print(f"Selected digest items: {len(selected_items)}")
+    except Exception:
+        finish_run(database_path, run_id, "failed", {}, None, error_count=1)
+        raise
+
 
 if __name__ == "__main__":
     main()
