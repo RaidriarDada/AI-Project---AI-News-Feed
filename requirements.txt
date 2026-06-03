@@ -3,3 +3,4 @@ PyYAML
 requests
 huggingface_hub
 python-dotenv
+langgraph
